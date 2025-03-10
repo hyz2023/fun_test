@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>说话人识别演示</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 20px;
+            padding-bottom: 20px;
+        }
+        .header {
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        .audio-visualizer {
+            margin-top: 20px;
+        }
+        .result-card {
+            margin-top: 20px;
+            display: none;
+        }
+        .speaker-list {
+            margin-top: 20px;
+        }
+        .recording {
+            color: red;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>说话人识别演示</h1>
+            <p class="lead">使用SpeechBrain实现的说话人识别系统</p>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>注册说话人</h4>
+                    </div>
+                    <div class="card-body">
+                        <form id="registerForm">
+                            <div class="mb-3">
+                                <label for="speakerName" class="form-label">说话人姓名</label>
+                                <input type="text" class="form-control" id="speakerName" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="registerAudio" class="form-label">上传音频文件</label>
+                                <input type="file" class="form-control" id="registerAudio" accept="audio/*" required>
+                            </div>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-primary" id="startRegisterRecording">开始录音</button>
+                                <button type="button" class="btn btn-danger" id="stopRegisterRecording" disabled>停止录音</button>
+                                <span class="recording" id="registerRecording">正在录音...</span>
+                            </div>
+                            <button type="submit" class="btn btn-success">注册</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h4>已注册说话人</h4>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-group" id="speakersList">
+                            <!-- 已注册说话人列表将在这里动态生成 -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>识别说话人</h4>
+                    </div>
+                    <div class="card-body">
+                        <form id="identifyForm">
+                            <div class="mb-3">
+                                <label for="identifyAudio" class="form-label">上传音频文件</label>
+                                <input type="file" class="form-control" id="identifyAudio" accept="audio/*" required>
+                            </div>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-primary" id="startIdentifyRecording">开始录音</button>
+                                <button type="button" class="btn btn-danger" id="stopIdentifyRecording" disabled>停止录音</button>
+                                <span class="recording" id="identifyRecording">正在录音...</span>
+                            </div>
+                            <button type="submit" class="btn btn-success">识别</button>
+                        </form>
+
+                        <div class="result-card card mt-4" id="resultCard">
+                            <div class="card-header">
+                                <h5>识别结果</h5>
+                            </div>
+                            <div class="card-body">
+                                <h5 class="card-title" id="identityResult">未知说话人</h5>
+                                <p class="card-text">置信度: <span id="confidenceResult">0%</span></p>
+                                <div id="similaritiesResult"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="audio-visualizer">
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h5>音频波形</h5>
+                        </div>
+                        <div class="card-body">
+                            <img id="waveformImage" class="img-fluid" style="display: none;">
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>频谱图</h5>
+                        </div>
+                        <div class="card-body">
+                            <img id="spectrogramImage" class="img-fluid" style="display: none;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 页面加载时获取已注册的说话人列表
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSpeakers();
+        });
+
+        // 加载已注册的说话人列表
+        function loadSpeakers() {
+            fetch('/speakers')
+                .then(response => response.json())
+                .then(data => {
+                    const speakersList = document.getElementById('speakersList');
+                    speakersList.innerHTML = '';
+                    
+                    if (data.speakers && data.speakers.length > 0) {
+                        data.speakers.forEach(speaker => {
+                            const li = document.createElement('li');
+                            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+                            
+                            // 创建可点击的说话人名称
+                            const speakerName = document.createElement('span');
+                            speakerName.textContent = speaker;
+                            speakerName.style.cursor = 'pointer';
+                            speakerName.onclick = function() { showSpeakerVisualization(speaker); };
+                            
+                            const deleteBtn = document.createElement('button');
+                            deleteBtn.className = 'btn btn-sm btn-danger';
+                            deleteBtn.textContent = '删除';
+                            deleteBtn.onclick = function() { removeSpeaker(speaker); };
+                            
+                            li.appendChild(speakerName);
+                            li.appendChild(deleteBtn);
+                            speakersList.appendChild(li);
+                        });
+                    } else {
+                        const li = document.createElement('li');
+                        li.className = 'list-group-item';
+                        li.textContent = '没有已注册的说话人';
+                        speakersList.appendChild(li);
+                    }
+                })
+                .catch(error => console.error('获取说话人列表失败:', error));
+        }
+
+        // 删除已注册的说话人
+        function removeSpeaker(name) {
+            if (confirm(`确定要删除说话人 ${name} 吗？`)) {
+                fetch(`/remove_speaker/${name}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.message);
+                        loadSpeakers();
+                    } else {
+                        alert(data.error || '删除失败');
+                    }
+                })
+                .catch(error => console.error('删除说话人失败:', error));
+            }
+        }
+        
+        // 显示说话人的音频可视化
+        function showSpeakerVisualization(name) {
+            fetch(`/speaker_visualization/${name}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // 显示波形图
+                        const waveformImage = document.getElementById('waveformImage');
+                        waveformImage.src = 'data:image/png;base64,' + data.waveform;
+                        waveformImage.style.display = 'block';
+                        
+                        // 显示频谱图
+                        const spectrogramImage = document.getElementById('spectrogramImage');
+                        spectrogramImage.src = 'data:image/png;base64,' + data.spectrogram;
+                        spectrogramImage.style.display = 'block';
+                    } else {
+                        alert(data.error || '获取可视化失败');
+                    }
+                })
+                .catch(error => console.error('获取说话人可视化失败:', error));
+        }
+
+        // 注册说话人表单提交
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('speakerName').value;
+            const audioFile = document.getElementById('registerAudio').files[0];
+            
+            if (!name || !audioFile) {
+                alert('请输入说话人姓名并上传音频文件');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('audio', audioFile);
+            
+            fetch('/register', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    document.getElementById('registerForm').reset();
+                    loadSpeakers();
+                    
+                    // 显示波形图和频谱图
+                    if (data.waveform) {
+                        const waveformImage = document.getElementById('waveformImage');
+                        waveformImage.src = 'data:image/png;base64,' + data.waveform;
+                        waveformImage.style.display = 'block';
+                    }
+                    
+                    if (data.spectrogram) {
+                        const spectrogramImage = document.getElementById('spectrogramImage');
+                        spectrogramImage.src = 'data:image/png;base64,' + data.spectrogram;
+                        spectrogramImage.style.display = 'block';
+                    }
+                } else {
+                    alert(data.error || '注册失败');
+                }
+            })
+            .catch(error => console.error('注册说话人失败:', error));
+        });
+
+        // 识别说话人表单提交
+        document.getElementById('identifyForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const audioFile = document.getElementById('identifyAudio').files[0];
+            
+            if (!audioFile) {
+                alert('请上传音频文件');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('audio', audioFile);
+            
+            fetch('/identify', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                // 显示识别结果
+                document.getElementById('resultCard').style.display = 'block';
+                document.getElementById('identityResult').textContent = data.identity;
+                document.getElementById('confidenceResult').textContent = (data.confidence * 100).toFixed(2) + '%';
+                
+                // 显示相似度列表
+                const similaritiesResult = document.getElementById('similaritiesResult');
+                similaritiesResult.innerHTML = '<h6>相似度列表:</h6>';
+                
+                const similarities = data.similarities;
+                const ul = document.createElement('ul');
+                ul.className = 'list-group';
+                
+                for (const [name, similarity] of Object.entries(similarities)) {
+                    const li = document.createElement('li');
+                    li.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    li.textContent = name;
+                    
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-primary rounded-pill';
+                    badge.textContent = (similarity * 100).toFixed(2) + '%';
+                    
+                    li.appendChild(badge);
+                    ul.appendChild(li);
+                }
+                
+                similaritiesResult.appendChild(ul);
+                
+                // 显示波形图和频谱图
+                if (data.waveform) {
+                    const waveformImage = document.getElementById('waveformImage');
+                    waveformImage.src = 'data:image/png;base64,' + data.waveform;
+                    waveformImage.style.display = 'block';
+                }
+                
+                if (data.spectrogram) {
+                    const spectrogramImage = document.getElementById('spectrogramImage');
+                    spectrogramImage.src = 'data:image/png;base64,' + data.spectrogram;
+                    spectrogramImage.style.display = 'block';
+                }
+            })
+            .catch(error => console.error('识别说话人失败:', error));
+        });
+
+        // 录音功能（需要在实际环境中实现）
+        // 这里只是一个简单的UI交互示例，实际录音功能需要使用Web Audio API实现
+        let registerMediaRecorder = null;
+        let identifyMediaRecorder = null;
+        let registerAudioChunks = [];
+        let identifyAudioChunks = [];
+
+        // 开始注册录音
+        document.getElementById('startRegisterRecording').addEventListener('click', function() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        document.getElementById('startRegisterRecording').disabled = true;
+                        document.getElementById('stopRegisterRecording').disabled = false;
+                        document.getElementById('registerRecording').style.display = 'inline';
+                        
+                        registerMediaRecorder = new MediaRecorder(stream);
+                        registerAudioChunks = [];
+                        
+                        registerMediaRecorder.addEventListener('dataavailable', event => {
+                            registerAudioChunks.push(event.data);
+                        });
+                        
+                        registerMediaRecorder.addEventListener('stop', () => {
+                            const audioBlob = new Blob(registerAudioChunks, { type: 'audio/wav' });
+                            const audioFile = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
+                            
+                            // 将录音文件设置到文件输入框
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(audioFile);
+                            document.getElementById('registerAudio').files = dataTransfer.files;
+                            
+                            document.getElementById('startRegisterRecording').disabled = false;
+                            document.getElementById('stopRegisterRecording').disabled = true;
+                            document.getElementById('registerRecording').style.display = 'none';
+                        });
+                        
+                        registerMediaRecorder.start();
+                    })
+                    .catch(error => {
+                        console.error('获取麦克风权限失败:', error);
+                        alert('无法访问麦克风，请确保已授予权限');
+                    });
+            } else {
+                alert('您的浏览器不支持录音功能');
+            }
+        });
+        
+        // 停止注册录音
+        document.getElementById('stopRegisterRecording').addEventListener('click', function() {
+            if (registerMediaRecorder) {
+                registerMediaRecorder.stop();
+                document.getElementById('registerRecording').style.display = 'none';
+            }
+        });
+        
+        // 开始识别录音
+        document.getElementById('startIdentifyRecording').addEventListener('click', function() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        document.getElementById('startIdentifyRecording').disabled = true;
+                        document.getElementById('stopIdentifyRecording').disabled = false;
+                        document.getElementById('identifyRecording').style.display = 'inline';
+                        
+                        identifyMediaRecorder = new MediaRecorder(stream);
+                        identifyAudioChunks = [];
+                        
+                        identifyMediaRecorder.addEventListener('dataavailable', event => {
+                            identifyAudioChunks.push(event.data);
+                        });
+                        
+                        identifyMediaRecorder.addEventListener('stop', () => {
+                            const audioBlob = new Blob(identifyAudioChunks, { type: 'audio/wav' });
+                            const audioFile = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
+                            
+                            // 将录音文件设置到文件输入框
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(audioFile);
+                            document.getElementById('identifyAudio').files = dataTransfer.files;
+                            
+                            document.getElementById('startIdentifyRecording').disabled = false;
+                            document.getElementById('stopIdentifyRecording').disabled = true;
+                            document.getElementById('identifyRecording').style.display = 'none';
+                        });
+                        
+                        identifyMediaRecorder.start();
+                    })
+                    .catch(error => {
+                        console.error('获取麦克风权限失败:', error);
+                        alert('无法访问麦克风，请确保已授予权限');
+                    });
+            } else {
+                alert('您的浏览器不支持录音功能');
+            }
+        });
+        
+        // 停止识别录音
+        document.getElementById('stopIdentifyRecording').addEventListener('click', function() {
+            if (identifyMediaRecorder) {
+                identifyMediaRecorder.stop();
+                document.getElementById('identifyRecording').style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
